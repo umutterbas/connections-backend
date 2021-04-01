@@ -16,3 +16,61 @@
 
 <div class="fb-login-button" data-width="" data-size="large" data-button-type="continue_with" data-layout="default" data-auto-logout-link="false" data-use-continue-as="false"></div>
 
+<div>
+  
+</div>
+
+<script>
+
+FB.api(
+  '/me',
+  'GET',
+  {"fields":"id,name,birthday,email"},
+  function(response) {
+      
+      
+  }
+);
+</script>
+
+<script>
+  const response = await axios({
+    url: `${apiPath}/twitter/oauth/request_token`, 
+    method: 'POST'
+  });
+
+  const { oauth_token } = response.data;
+
+  window.location.href = `https://api.twitter.com/oauth/authenticate?oauth_token=${oauth_token}`;
+
+  try {
+  //Oauth Step 3
+    await axios({
+      url: `${apiPath}/twitter/oauth/access_token`,  
+      method: 'POST',
+      data: {oauth_token, oauth_verifier}
+    });
+  } catch (error) {
+  console.error(error); 
+  }
+
+  try {
+          //Authenticated Resource Access
+    const {data: {name, profile_image_url_https, status, entities}} = await axios({
+      url: `${apiPath}/twitter/users/profile_banner`,
+      method: 'GET'
+    });
+
+    setIsLoggedIn(true);
+    setName(name);
+    setImageUrl(profile_image_url_https);
+    setStatus(status.text);
+    setUrl(entities.url.urls[0].expanded_url);
+  } catch (error) {
+  console.error(error); 
+  }
+
+
+</script>
+
+;;
