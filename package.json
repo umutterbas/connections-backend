@@ -9,9 +9,14 @@
   "author": "Umut Terbas",
   "license": "ISC",
   "dependencies": {
+    "cookie-parser": "^1.4.5",
     "ejs": "^3.1.6",
     "express": "^4.17.1",
+    "express-session": "^1.17.1",
     "googleapis": "^68.0.0",
+    "oauth": "^0.9.15",
+    "open": "^8.0.4",
+    "server-destroy": "^1.0.1",
     "sleep": "^6.3.0",
     "xmlhttprequest": "^1.8.0"
   }

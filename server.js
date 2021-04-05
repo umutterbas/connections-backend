@@ -1,24 +1,217 @@
 const express = require('express')
 const {spawn} = require('child_process');
 const { strict } = require('assert');
-var XMLHttpRequest = require("xmlhttprequest").XMLHttpRequest;
 const app = express()
-const port = 3000
+const port = 4000
 app.set('view engine', 'ejs')
 const sleep = require('sleep')
 
-//GMAIL API--------------------
-const fs = require('fs');
-const readline = require('readline');
-const {google} = require('googleapis');
-const { SSL_OP_EPHEMERAL_RSA } = require('constants');
+//TWITTER API------------------
 
-// If modifying these scopes, delete token.json.
-const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
-// The file token.json stores the user's access and refresh tokens, and is
-// created automatically when the authorization flow completes for the first
-// time.
-const TOKEN_PATH = 'token.json';
+const session = require("express-session");
+const cookieParser = require("cookie-parser");
+
+const {
+  getOAuthRequestToken,
+  getOAuthAccessTokenWith,
+  oauthGetUserById,
+} = require("./oauth-utilities");
+
+const path = require("path");
+const fs = require("fs");
+
+const TEMPLATE = fs.readFileSync(
+  path.resolve(__dirname, "client", "template.html"),
+  { encoding: "utf8" }
+);
+
+const COOKIE_SECRET =
+  process.env.npm_config_cookie_secret || process.env.COOKIE_SECRET;
+
+main().catch((err) => console.error(err.message, err));
+
+async function main() {
+  const app = express();
+  app.use(cookieParser());
+  app.use(session({ secret: COOKIE_SECRET || "secret" }));
+
+  app.listen(3000, () => console.log("listening on http://127.0.0.1:3000"));
+
+  app.get("/", async (req, res, next) => {
+    console.log("/ req.cookies", req.cookies);
+    if (req.cookies && req.cookies.twitter_screen_name) {
+      console.log("/ authorized", req.cookies.twitter_screen_name);
+      return res.send(
+        TEMPLATE.replace(
+          "CONTENT",
+          `
+        <h1>Welcome ${req.cookies.twitter_screen_name}</h1>
+        <h2>ENS 491<h2>
+        <br>
+        <a href="/twitter/logout">logout</a>
+      `
+        )
+      );
+    }
+    return next();
+  });
+  app.use(express.static(path.resolve(__dirname, "client")));
+
+  app.get("/twitter/logout", logout);
+  function logout(req, res, next) {
+    res.clearCookie("twitter_screen_name");
+    req.session.destroy(() => res.redirect("/"));
+  }
+
+  app.get("/twitter/authenticate", twitter("authenticate"));
+  app.get("/twitter/authorize", twitter("authorize"));
+  function twitter(method = "authorize") {
+    return async (req, res) => {
+      console.log(`/twitter/${method}`);
+      const {
+        oauthRequestToken,
+        oauthRequestTokenSecret,
+      } = await getOAuthRequestToken();
+      console.log(`/twitter/${method} ->`, {
+        oauthRequestToken,
+        oauthRequestTokenSecret,
+      });
+
+      req.session = req.session || {};
+      req.session.oauthRequestToken = oauthRequestToken;
+      req.session.oauthRequestTokenSecret = oauthRequestTokenSecret;
+
+      const authorizationUrl = `https://api.twitter.com/oauth/${method}?oauth_token=${oauthRequestToken}`;
+      console.log("redirecting user to ", authorizationUrl);
+      res.redirect(authorizationUrl);
+    };
+  }
+
+  app.get("/twitter/callback", async (req, res) => {
+    const { oauthRequestToken, oauthRequestTokenSecret } = req.session;
+    const { oauth_verifier: oauthVerifier } = req.query;
+    console.log("/twitter/callback", {
+      oauthRequestToken,
+      oauthRequestTokenSecret,
+      oauthVerifier,
+    });
+
+    const {
+      oauthAccessToken,
+      oauthAccessTokenSecret,
+      results,
+    } = await getOAuthAccessTokenWith({
+      oauthRequestToken,
+      oauthRequestTokenSecret,
+      oauthVerifier,
+    });
+    req.session.oauthAccessToken = oauthAccessToken;
+
+    const { user_id: userId /*, screen_name */ } = results;
+    const user = await oauthGetUserById(userId, {
+      oauthAccessToken,
+      oauthAccessTokenSecret,
+    });
+
+    req.session.twitter_screen_name = user.screen_name;
+    res.cookie("twitter_screen_name", user.screen_name, {
+      maxAge: 900000,
+      httpOnly: true,
+    });
+
+    console.log("user succesfully logged in with twitter", user.screen_name);
+    req.session.save(() => res.redirect("/"));
+  });
+}
+
+//-----------------------------
+
+
+//GMAIL API--------------------
+
+'use strict';
+
+const http = require('http');
+const url = require('url');
+const opn = require('open');
+const destroyer = require('server-destroy');
+
+const {google} = require('googleapis');
+const people = google.people('v1');
+
+/**
+ * Create a new OAuth2 client with the configured keys.
+ */
+ const oauth2Client = new google.auth.OAuth2(
+  "481059199386-dh933nt8rerrcus0f8jtrgvvp9s3ah4p.apps.googleusercontent.com",
+  "we84FG2Qc0XHmD8uJ6AYr_fh",
+  "http://localhost:5000/redirect"
+);
+
+/**
+ * This is one of the many ways you can configure googleapis to use authentication credentials.  In this method, we're setting a global reference for all APIs.  Any other API you use here, like google.drive('v3'), will now use this auth client. You can also override the auth client at the service and method call levels.
+ */
+ google.options({auth: oauth2Client});
+
+ /**
+  * Open an http server to accept the oauth callback. In this simple example, the only request to our webserver is to /callback?code=<code>
+  */
+ async function authenticate(scopes) {
+   return new Promise((resolve, reject) => {
+     // grab the url that will be used for authorization
+     const authorizeUrl = oauth2Client.generateAuthUrl({
+       access_type: 'offline',
+       scope: scopes.join(' '),
+     });
+     const server = http
+       .createServer(async (req, res) => {
+         try {
+           if (req.url.indexOf('/redirect') > -1) {
+             const qs = new url.URL(req.url, 'http://localhost:5000')
+               .searchParams;
+             res.end('Authentication successful! Please return to the console.');
+             server.destroy();
+             const {tokens} = await oauth2Client.getToken(qs.get('code'));
+             oauth2Client.credentials = tokens; // eslint-disable-line require-atomic-updates
+             resolve(oauth2Client);
+           }
+         } catch (e) {
+           reject(e);
+         }
+       })
+       .listen(5000, () => {
+         // open the browser to the authorize url to start the workflow
+         opn(authorizeUrl, {wait: false}).then(cp => cp.unref());
+       });
+     destroyer(server);
+   });
+ }
+ 
+ async function runSample() {
+   // retrieve user profile
+   const res = await people.people.get({
+     resourceName: 'people/me',
+     personFields: 'emailAddresses',
+   });
+   console.log(res.data);
+ }
+ 
+ 
+ const scopes = [
+ 'https://www.googleapis.com/auth/contacts.readonly',
+   'https://www.googleapis.com/auth/user.emails.read',
+   'profile'
+ ];
+
+   app.get('/getGoogleData', (req, res) => {
+    
+    authenticate(scopes)
+   .then(client => runSample(client))
+   .catch(console.error);
+
+   res.redirect("localhost:4000/")
+   })    
+
 //-----------------------------
 
 app.listen(port, () => console.log(`Connections Backend listening on port 
@@ -30,267 +223,4 @@ app.get('/', (req, res) => {
 
 app.get("/login", (request, result) => {
     result.render("login")
-})
-
-app.post('/getTwitterData', (req,res) => {
-    const twitterToken = "myToken124958243"
-    //req.twitterToken
-    console.log(twitterToken)
-
-    var dataToSend = []
-    // spawn new child process to call the python script
-    const python = spawn('python3', ['script.py', twitterToken, 'param2'])
-    // collect data from script
-    python.stdout.on('data', function (data) {
-      console.log('Pipe data from python script ...')
-      dataToSend.push(data)
-    });
-    // in close event we are sure that stream from child process is closed
-    python.on('close', (code) => {
-    console.log(`child process close all stdio with code ${code}`);
-    // send data to browser
-    res.send(dataToSend.join(""))
-    })
-})
-
-app.get('/getContactsData', (req,res) => {
-  const fs = require('fs');
-const readline = require('readline');
-const {google} = require('googleapis');
-
-// If modifying these scopes, delete token.json.
-const SCOPES = ['https://www.googleapis.com/auth/contacts.readonly'];
-// The file token.json stores the user's access and refresh tokens, and is
-// created automatically when the authorization flow completes for the first
-// time.
-const TOKEN_PATH = 'token.json';
-
-// Load client secrets from a local file.
-fs.readFile('credentials.json', (err, content) => {
-  if (err) return console.log('Error loading client secret file:', err);
-  // Authorize a client with credentials, then call the Google Tasks API.
-  authorize(JSON.parse(content), listConnectionNames);
-});
-
-/**
- * Create an OAuth2 client with the given credentials, and then execute the
- * given callback function.
- * @param {Object} credentials The authorization client credentials.
- * @param {function} callback The callback to call with the authorized client.
- */
-function authorize(credentials, callback) {
-  const {client_secret, client_id, redirect_uris} = credentials.installed;
-  const oAuth2Client = new google.auth.OAuth2(
-      client_id, client_secret, redirect_uris[0]);
-
-  // Check if we have previously stored a token.
-  fs.readFile(TOKEN_PATH, (err, token) => {
-    if (err) return getNewToken(oAuth2Client, callback);
-    oAuth2Client.setCredentials(JSON.parse(token));
-    callback(oAuth2Client);
-  });
-}
-
-/**
- * Get and store new token after prompting for user authorization, and then
- * execute the given callback with the authorized OAuth2 client.
- * @param {google.auth.OAuth2} oAuth2Client The OAuth2 client to get token for.
- * @param {getEventsCallback} callback The callback for the authorized client.
- */
-function getNewToken(oAuth2Client, callback) {
-  const authUrl = oAuth2Client.generateAuthUrl({
-    access_type: 'offline',
-    scope: SCOPES,
-  });
-  
-
-  console.log('Authorize this app by visiting this url:', authUrl);
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-  rl.question('Enter the code from that page here: ', (code) => {
-    rl.close();
-    oAuth2Client.getToken(code, (err, token) => {
-      if (err) return console.error('Error retrieving access token', err);
-      oAuth2Client.setCredentials(token);
-      // Store the token to disk for later program executions
-      fs.writeFile(TOKEN_PATH, JSON.stringify(token), (err) => {
-        if (err) return console.error(err);
-        console.log('Token stored to', TOKEN_PATH);
-      });
-      callback(oAuth2Client);
-    });
-  });
-}
-
-/**
- * Print the display name if available for 10 connections.
- *
- * @param {google.auth.OAuth2} auth An authorized OAuth2 client.
- */
-function listConnectionNames(auth) {
-  const service = google.people({version: 'v1', auth});
-  service.people.connections.list({
-    resourceName: 'people/me',
-    pageSize: 10,
-    personFields: 'names,emailAddresses',
-  }, (err, res) => {
-    if (err) return console.error('The API returned an error: ' + err);
-    const connections = res.data.connections;
-    if (connections) {
-      console.log('Connections:');
-      connections.forEach((person) => {
-        if (person.names && person.names.length > 0) {
-          console.log(person.names[0].displayName);
-        } else {
-          console.log('No display name found for connection.');
-        }
-      });
-    } else {
-      console.log('No connections found.');
-    }
-  });
-}
-})
-
-app.get('/g', (req,res) => {
-
-  const {google} = require('googleapis');
-
-const oauth2Client = new google.auth.OAuth2(
-  "1059184212102-caqscan3rs980con1sgktip9fn4j3u0d.apps.googleusercontent.com",
-  "AqR_VsRNyhRBveyf7lw_v_Kn",
-  'http://localhost:3000/oauth-callback'
-);
-
-// generate a url that asks permissions for Blogger and Google Calendar scopes
-const scopes = [
-  'https://www.googleapis.com/auth/gmail',
-  'https://www.googleapis.com/auth/contacts'
-];
-
-const url = oauth2Client.generateAuthUrl({
-  // 'online' (default) or 'offline' (gets refresh_token)
-  access_type: 'offline',
-
-  // If you only need one scope you can pass it as a string
-  scope: scopes
-});
-
-// This will provide an object with the access_token and refresh_token.
-// Save these somewhere safe so they can be used at a later time.
-
-async function main () {
-  
-  const {tokens} = await oauth2Client.getToken(code)
-oauth2Client.setCredentials(tokens);
-  // Fetch the list of GCE zones within a project.
-
-}
-main().catch(console.error);
-
-
-})
-
-app.get('/getGmailData', (req,res) => {
-  
-  // Load client secrets from a local file.
-fs.readFile('credentials.json', (err, content) => {
-  if (err) return console.log('Error loading client secret file:', err);
-  // Authorize a client with credentials, then call the Gmail API.
-  authorize(JSON.parse(content), listLabels);
-});
-
-/**
- * Create an OAuth2 client with the given credentials, and then execute the
- * given callback function.
- * @param {Object} credentials The authorization client credentials.
- * @param {function} callback The callback to call with the authorized client.
- */
-function authorize(credentials, callback) {
-  const {client_secret, client_id, redirect_uris} = credentials.installed;
-  const oAuth2Client = new google.auth.OAuth2(
-    "1059184212102-caqscan3rs980con1sgktip9fn4j3u0d.apps.googleusercontent.com",
-    "AqR_VsRNyhRBveyf7lw_v_Kn",
-    'http://localhost:3000/oauth-callback');
-
-  // Check if we have previously stored a token.
-  fs.readFile(TOKEN_PATH, (err, token) => {
-    if (err) return getNewToken(oAuth2Client, callback);
-    oAuth2Client.setCredentials(JSON.parse(token));
-    callback(oAuth2Client);
-  });
-}
-
-/**
- * Get and store new token after prompting for user authorization, and then
- * execute the given callback with the authorized OAuth2 client.
- * @param {google.auth.OAuth2} oAuth2Client The OAuth2 client to get token for.
- * @param {getEventsCallback} callback The callback for the authorized client.
- */
-function getNewToken(oAuth2Client, callback) {
-  const authUrl = oAuth2Client.generateAuthUrl({
-    access_type: 'offline',
-    scope: SCOPES,
-  });
-
-  res.writeHead(302, {
-    'Location': authUrl
-    //add other headers here...
-  });
-  res.end();
-  //console.log('Authorize this app by visiting this url:', authUrl);
-  // request access token
-  sleep.sleep(10)
-  oAuth2Client.getToken(req.query.code, function (err, tokens) {
-    // set tokens to the client
-    // TODO: tokens should be set by OAuth2 client.
-    oAuth2Client.setCredentials(tokens);
-    console.log(tokens.access_token);
-    console.log(tokens.refresh_token);
-});
-
-  
-
-  // This will provide an object with the access_token and refresh_token.
-// Save these somewhere safe so they can be used at a later time.
-  
- 
-    
-      //oAuth2Client.setCredentials(token);
-      // Store the token to disk for later program executions
-      /*
-      fs.writeFile(TOKEN_PATH, JSON.stringify(token), (err) => {
-        if (err) return console.error(err);
-        console.log('Token stored to', TOKEN_PATH);
-      });
-      callback(oAuth2Client);
-*/
-      listLabels(oAuth2Client.auth);
-}
-
-/**
- * Lists the labels in the user's account.
- *
- * @param {google.auth.OAuth2} auth An authorized OAuth2 client.
- */
-function listLabels(auth) {
-  const gmail = google.gmail({version: 'v1', auth});
-  gmail.users.labels.list({
-    userId: 'me',
-  }, (err, res) => {
-    if (err) return console.log('The API returned an error: ' + err);
-    const labels = res.data.labels;
-    if (labels.length) {
-      console.log('Labels:');
-      labels.forEach((label) => {
-        console.log(`- ${label.name}`);
-      });
-    } else {
-      console.log('No labels found.');
-    }
-  });
-}
-
 })
