@@ -22,7 +22,7 @@ const destroyer = require('server-destroy');
 
 const {google} = require('googleapis');
 const people = google.people('v1');
-
+var mail;
 /**
  * To use OAuth2 authentication, we need access to a a CLIENT_ID, CLIENT_SECRET, AND REDIRECT_URI.  To get these credentials for your application, visit https://console.cloud.google.com/apis/credentials.
  */
@@ -83,55 +83,6 @@ async function authenticate(scopes) {
   });
 }
 
-async function runSample() {
-  // retrieve user profile
-  const res = await people.people.get({
-    resourceName: 'people/me',
-    personFields: 'emailAddresses',
-  });
-  console.log(res.data);
-}
-
-function getMailsOld(auth) {
-  const senders = []
-  const gmail = google.gmail({version: 'v1', auth});
-  gmail.users.messages.list({
-    userId: 'me',
-  }, (err, res) => {
-    if (err) return console.log('The API returned an error: ' + err);
-    const messages = res.data.messages;
-    if (messages.length) {
-      for (let i = 0; i < messages.length; i++) {
-        const message = messages[i];
-        
-        gmail.users.messages.get({
-          userId: 'me',
-          id: message.id,
-        }, (err, mes) => {
-          if (err) return console.log('The API returned an error: ' + err);
-          let i = 0;
-          const headers = mes.data.payload.headers;
-          headers.forEach(element => {
-            
-            if (element.name=='From') {
-              const sender = element.value;
-              const sen = sender.split("<")[1].split(">")[0];
-              //console.log(sen);
-              senders.push(sen);
-            }
-          });
-        
-      })
-      }
-      
-      
-    }
-  });
-
-  console.log(senders);
-  return senders;
-}
-
 async function getMails(auth) {
   const senders = []
   const gmail = google.gmail({version: 'v1', auth});
@@ -140,6 +91,7 @@ async function getMails(auth) {
   });
   const messages = res.data.messages;
   if (messages.length) {
+
     for (let i = 0; i < messages.length; i++) {
       const message = messages[i];
       
@@ -149,20 +101,33 @@ async function getMails(auth) {
       });
         
       const headers = mes.data.payload.headers;
+
+
       for (const element of headers) {
         if (element.name=='From') {
-          const sender = element.value;
-          //const sen = sender.split("<")[1].split(">")[0];
+          var sender = element.value;
+          
+          if(sender.includes("<")){
+            sender = sender.split("<")[1].split(">")[0];
+          }
           senders.push(sender);
         }
+
+        if (element.name=='To') {
+          var target = element.value;
+          if(target.includes("<")){
+            target = target.split("<")[1].split(">")[0];
+          }
+        };
       }
     }
-    return senders; 
+    return {senders,target}; 
   }
   else {
     return;
   }
 }
+
 
 const scopes = [
 'https://www.googleapis.com/auth/contacts.readonly',
@@ -174,8 +139,16 @@ const scopes = [
 authenticate(scopes)
   .then(client => {
     getMails(client).then(arr => {
-      let counts = arr.reduce((counts, val) => counts.set(val, 1 + (counts.get(val) || 0)), new Map());
-      console.log(counts);
+      let counts = arr.senders.reduce((counts, val) => counts.set(val, 1 + (counts.get(val) || 0)), new Map());
+      var targetinho = arr.target;
+      for(let [key, value] of counts){
+        var a = "{\"Source\": " + key  + " , \"Weight\": " +  value +  "}";
+        console.log("{\"Source\": ", key , " , Target: ", targetinho, " ,",  "Weight\": ", value, "}");
+        
+        /*fs.appendFile('C:\\Users\\Kutay\\Desktop\\connections-backend\\json\\json.txt', a , function (err) {
+          if (err) return console.log(err);
+       });*/
+      }
     })})
-  .catch(console.error);
-console.log('END');
+
+  .catch(console.error)
