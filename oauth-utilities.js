@@ -1,0 +1,72 @@
+const oauth = require("oauth");
+
+const { promisify } = require("util");
+
+const TWITTER_CONSUMER_API_KEY =
+  "q9b4W1IDgQrBsq35pnNpZ9OdP" || process.env.TWITTER_CONSUMER_API_KEY;
+const TWITTER_CONSUMER_API_SECRET_KEY =
+  "fv7Y8KTQEgPtWLFEC4OaG8RwQYusiHTaF5f0qlEUe0X5cGSXQ8" ||
+  process.env.TWITTER_CONSUMER_API_SECRET_KEY;
+
+const oauthConsumer = new oauth.OAuth(
+  "https://twitter.com/oauth/request_token",
+  "https://twitter.com/oauth/access_token",
+  TWITTER_CONSUMER_API_KEY,
+  TWITTER_CONSUMER_API_SECRET_KEY,
+  "1.0A",
+  "http://127.0.0.1:3001/twitter/callback",
+  "HMAC-SHA1"
+);
+
+module.exports = {
+  oauthGetUserById,
+  getOAuthAccessTokenWith,
+  getOAuthRequestToken,
+};
+
+async function oauthGetUserById(
+  userId,
+  { oauthAccessToken, oauthAccessTokenSecret } = {}
+) {
+  return promisify(oauthConsumer.get.bind(oauthConsumer))(
+    `https://api.twitter.com/1.1/users/show.json?user_id=${userId}`,
+    oauthAccessToken,
+    oauthAccessTokenSecret
+  ).then((body) => JSON.parse(body));
+}
+async function getOAuthAccessTokenWith({
+  oauthRequestToken,
+  oauthRequestTokenSecret,
+  oauthVerifier,
+} = {}) {
+  return new Promise((resolve, reject) => {
+    oauthConsumer.getOAuthAccessToken(
+      oauthRequestToken,
+      oauthRequestTokenSecret,
+      oauthVerifier,
+      function (error, oauthAccessToken, oauthAccessTokenSecret, results) {
+        console.log(oauthRequestToken);
+        console.log(oauthRequestTokenSecret);
+        console.log(oauthVerifier);
+
+        return error
+          ? reject(new Error("Error getting OAuth access token"))
+          : resolve({ oauthAccessToken, oauthAccessTokenSecret, results });
+      }
+    );
+  });
+}
+async function getOAuthRequestToken() {
+  return new Promise((resolve, reject) => {
+    oauthConsumer.getOAuthRequestToken(function (
+      error,
+      oauthRequestToken,
+      oauthRequestTokenSecret,
+      results
+    ) {
+      return error
+        ? reject(new Error("Error getting OAuth request token"))
+        : resolve({ oauthRequestToken, oauthRequestTokenSecret, results });
+    });
+  });
+}
