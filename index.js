@@ -2,6 +2,7 @@ const express = require("express");
 const session = require("express-session");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
+const fs = require("fs");
 
 let tokens = {};
 
@@ -35,7 +36,7 @@ async function main() {
 
   app.use(
     session({
-      secret: COOKIE_SECRET || "secret",
+      secret: "secret",
       cookie: {
         sameSite: "none",
         maxAge: 1000 * 60 * 60,
