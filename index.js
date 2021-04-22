@@ -1,6 +1,5 @@
 const express = require("express");
 const session = require("express-session");
-const cookieParser = require("cookie-parser");
 const cors = require("cors");
 
 const {
@@ -27,21 +26,20 @@ async function main() {
 
   app.use(
     cors({
-      origin: "http://127.0.0.1:3001",
+      origin: "http://localhost:3001",
       credentials: true,
     })
   );
 
   app.use(express.json());
 
-  app.use(cookieParser());
   app.use(
     session({
       secret: COOKIE_SECRET || "secret",
       cookie: {
         secure: true,
         sameSite: "none",
-        maxAge: 60 * 60 * 24 * 1000,
+        maxAge: 60 * 24 * 1000,
       },
     })
   );
@@ -77,12 +75,10 @@ async function main() {
   }
 
   app.get("/twitter/authenticate", twitter("authenticate"));
-
   app.get("/twitter/authorize", twitter("authorize"));
 
   function twitter(method = "authorize") {
     return async (req, res) => {
-      console.log(`/twitter/${method}`);
       const {
         oauthRequestToken,
         oauthRequestTokenSecret,
@@ -96,13 +92,19 @@ async function main() {
       req.session.oauthRequestToken = oauthRequestToken;
       req.session.oauthRequestTokenSecret = oauthRequestTokenSecret;
 
+      console.log(req.session);
+
       const authorizationUrl = `https://api.twitter.com/oauth/${method}?oauth_token=${oauthRequestToken}`;
       console.log("redirecting user to ", authorizationUrl);
+
       res.redirect(authorizationUrl);
     };
   }
 
   app.post("/callback", async (req, res) => {
+    console.log("callback session: ", req.session);
+    console.log("callback session token: ", req.session.oauthRequestToken);
+
     const { oauthRequestToken, oauthRequestTokenSecret } = req.session;
     const oauthVerifier = req.body.oauth_verifier;
     console.log("/callback", {
@@ -139,6 +141,7 @@ async function main() {
     });
 
     console.log("user succesfully logged in with twitter", user.screen_name);
-    req.session.save(() => res.redirect("/"));
+    req.session.save();
+    //req.session.save(() => res.redirect("/"));
   });
 }
