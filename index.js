@@ -1,6 +1,9 @@
 const express = require("express");
 const session = require("express-session");
 const cors = require("cors");
+const cookieParser = require("cookie-parser");
+
+let tokens = {};
 
 const {
   getOAuthRequestToken,
@@ -9,15 +12,11 @@ const {
 } = require("./oauth-utilities");
 
 const path = require("path");
-const fs = require("fs");
 
 const TEMPLATE = fs.readFileSync(
   path.resolve(__dirname, "client", "template.html"),
   { encoding: "utf8" }
 );
-
-const COOKIE_SECRET =
-  process.env.npm_config_cookie_secret || process.env.COOKIE_SECRET;
 
 main().catch((err) => console.error(err.message, err));
 
@@ -32,14 +31,14 @@ async function main() {
   );
 
   app.use(express.json());
+  app.use(cookieParser());
 
   app.use(
     session({
       secret: COOKIE_SECRET || "secret",
       cookie: {
-        secure: true,
         sameSite: "none",
-        maxAge: 60 * 24 * 1000,
+        maxAge: 1000 * 60 * 60,
       },
     })
   );
@@ -88,11 +87,14 @@ async function main() {
         oauthRequestTokenSecret,
       });
 
-      req.session = req.session || {};
-      req.session.oauthRequestToken = oauthRequestToken;
-      req.session.oauthRequestTokenSecret = oauthRequestTokenSecret;
+      res.cookie("oauth_token", oauthRequestToken, {
+        maxAge: 15 * 60 * 1000, // 15 minutes
+        secure: true,
+        httpOnly: true,
+        sameSite: true,
+      });
 
-      console.log(req.session);
+      tokens[oauthRequestToken] = { oauthRequestTokenSecret };
 
       const authorizationUrl = `https://api.twitter.com/oauth/${method}?oauth_token=${oauthRequestToken}`;
       console.log("redirecting user to ", authorizationUrl);
@@ -102,16 +104,23 @@ async function main() {
   }
 
   app.post("/callback", async (req, res) => {
-    console.log("callback session: ", req.session);
-    console.log("callback session token: ", req.session.oauthRequestToken);
-
-    const { oauthRequestToken, oauthRequestTokenSecret } = req.session;
+    const oauthRequestToken = req.body.oauth_token;
     const oauthVerifier = req.body.oauth_verifier;
-    console.log("/callback", {
+    const oauth_token = req.cookies["oauth_token"];
+    const oauthRequestTokenSecret = tokens[oauth_token].oauthRequestTokenSecret;
+
+    console.log(
+      req.body,
       oauthRequestToken,
-      oauthRequestTokenSecret,
       oauthVerifier,
-    });
+      oauth_token,
+      oauthRequestTokenSecret
+    );
+
+    if (oauth_token !== oauthRequestToken) {
+      res.status(403).json({ message: "Request tokens do not match" });
+      return;
+    }
 
     const {
       oauthAccessToken,
@@ -122,7 +131,6 @@ async function main() {
       oauthRequestTokenSecret,
       oauthVerifier,
     });
-    req.session.oauthAccessToken = oauthAccessToken;
 
     const { user_id: userId /*, screen_name */ } = results;
     const user = await oauthGetUserById(userId, {
@@ -130,18 +138,16 @@ async function main() {
       oauthAccessTokenSecret,
     });
 
-    req.session.twitter_screen_name = user.screen_name;
     console.log(results);
 
     res.cookie("twitter_screen_name", user.screen_name, {
       maxAge: 900000,
       httpOnly: true,
-      secure: true,
       sameSite: "none",
+      secure: true,
     });
 
     console.log("user succesfully logged in with twitter", user.screen_name);
-    req.session.save();
-    //req.session.save(() => res.redirect("/"));
+    req.session.save(() => res.redirect("/"));
   });
 }
