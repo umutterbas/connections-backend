@@ -14,7 +14,7 @@ const oauthConsumer = new oauth.OAuth(
   TWITTER_CONSUMER_API_KEY,
   TWITTER_CONSUMER_API_SECRET_KEY,
   "1.0A",
-  "http://127.0.0.1:3000/twitter/callback",
+  "http://localhost:3001/twitter/callback",
   "HMAC-SHA1"
 );
 
@@ -45,6 +45,10 @@ async function getOAuthAccessTokenWith({
       oauthRequestTokenSecret,
       oauthVerifier,
       function (error, oauthAccessToken, oauthAccessTokenSecret, results) {
+        console.log(oauthRequestToken);
+        console.log(oauthRequestTokenSecret);
+        console.log(oauthVerifier);
+
         return error
           ? reject(new Error("Error getting OAuth access token"))
           : resolve({ oauthAccessToken, oauthAccessTokenSecret, results });

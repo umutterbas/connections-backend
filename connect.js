@@ -27,6 +27,7 @@ main().catch((err) => console.error(err.message, err));
 
 async function main() {
   const app = connect();
+
   app.use(cookieParser());
   app.use(session({ secret: COOKIE_SECRET || "secret", secure: false }));
 

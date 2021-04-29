@@ -1,6 +1,10 @@
 const express = require("express");
 const session = require("express-session");
+const cors = require("cors");
 const cookieParser = require("cookie-parser");
+const fs = require("fs");
+
+let tokens = {};
 
 const {
   getOAuthRequestToken,
@@ -9,22 +13,36 @@ const {
 } = require("./oauth-utilities");
 
 const path = require("path");
-const fs = require("fs");
 
 const TEMPLATE = fs.readFileSync(
   path.resolve(__dirname, "client", "template.html"),
   { encoding: "utf8" }
 );
 
-const COOKIE_SECRET =
-  process.env.npm_config_cookie_secret || process.env.COOKIE_SECRET;
-
 main().catch((err) => console.error(err.message, err));
 
 async function main() {
   const app = express();
+
+  app.use(
+    cors({
+      origin: "http://localhost:3001",
+      credentials: true,
+    })
+  );
+
+  app.use(express.json());
   app.use(cookieParser());
-  app.use(session({ secret: COOKIE_SECRET || "secret" }));
+
+  app.use(
+    session({
+      secret: "secret",
+      cookie: {
+        sameSite: "none",
+        maxAge: 1000 * 60 * 60,
+      },
+    })
+  );
 
   app.listen(3000, () => console.log("listening on http://127.0.0.1:3000"));
 
@@ -46,9 +64,11 @@ async function main() {
     }
     return next();
   });
+
   app.use(express.static(path.resolve(__dirname, "client")));
 
   app.get("/twitter/logout", logout);
+
   function logout(req, res, next) {
     res.clearCookie("twitter_screen_name");
     req.session.destroy(() => res.redirect("/"));
@@ -56,9 +76,9 @@ async function main() {
 
   app.get("/twitter/authenticate", twitter("authenticate"));
   app.get("/twitter/authorize", twitter("authorize"));
+
   function twitter(method = "authorize") {
     return async (req, res) => {
-      console.log(`/twitter/${method}`);
       const {
         oauthRequestToken,
         oauthRequestTokenSecret,
@@ -68,24 +88,40 @@ async function main() {
         oauthRequestTokenSecret,
       });
 
-      req.session = req.session || {};
-      req.session.oauthRequestToken = oauthRequestToken;
-      req.session.oauthRequestTokenSecret = oauthRequestTokenSecret;
+      res.cookie("oauth_token", oauthRequestToken, {
+        maxAge: 15 * 60 * 1000, // 15 minutes
+        secure: true,
+        httpOnly: true,
+        sameSite: true,
+      });
+
+      tokens[oauthRequestToken] = { oauthRequestTokenSecret };
 
       const authorizationUrl = `https://api.twitter.com/oauth/${method}?oauth_token=${oauthRequestToken}`;
       console.log("redirecting user to ", authorizationUrl);
+
       res.redirect(authorizationUrl);
     };
   }
 
-  app.get("/twitter/callback", async (req, res) => {
-    const { oauthRequestToken, oauthRequestTokenSecret } = req.session;
-    const { oauth_verifier: oauthVerifier } = req.query;
-    console.log("/twitter/callback", {
+  app.post("/callback", async (req, res) => {
+    const oauthRequestToken = req.body.oauth_token;
+    const oauthVerifier = req.body.oauth_verifier;
+    const oauth_token = req.cookies["oauth_token"];
+    const oauthRequestTokenSecret = tokens[oauth_token].oauthRequestTokenSecret;
+
+    console.log(
+      req.body,
       oauthRequestToken,
-      oauthRequestTokenSecret,
       oauthVerifier,
-    });
+      oauth_token,
+      oauthRequestTokenSecret
+    );
+
+    if (oauth_token !== oauthRequestToken) {
+      res.status(403).json({ message: "Request tokens do not match" });
+      return;
+    }
 
     const {
       oauthAccessToken,
@@ -96,7 +132,6 @@ async function main() {
       oauthRequestTokenSecret,
       oauthVerifier,
     });
-    req.session.oauthAccessToken = oauthAccessToken;
 
     const { user_id: userId /*, screen_name */ } = results;
     const user = await oauthGetUserById(userId, {
@@ -104,10 +139,13 @@ async function main() {
       oauthAccessTokenSecret,
     });
 
-    req.session.twitter_screen_name = user.screen_name;
+    console.log(results);
+
     res.cookie("twitter_screen_name", user.screen_name, {
       maxAge: 900000,
       httpOnly: true,
+      sameSite: "none",
+      secure: true,
     });
 
     console.log("user succesfully logged in with twitter", user.screen_name);
