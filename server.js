@@ -188,9 +188,7 @@ app.get("/getGoogleData", async function (req, res) {
     scope: scopes.join(" "),
   });
   let cp = await open(authorizeUrl);
-  //if (req.url.indexOf('/oauth-callback') > -1) {
-  //Bu ifi awaitli yap
-
+  
   res.render("login");
 });
 
@@ -206,17 +204,22 @@ app.post("/oauth-callback", async function (req, res) {
           (counts, val) => counts.set(val, 1 + (counts.get(val) || 0)),
           new Map()
         );
-        var targetinho = arr.target;
+        let targetinho = arr.target;
+        ///*
         for (let [key, value] of counts) {
-          var link = { source: key, target: targetinho, weight: value };
+          let source = String(key);
+          let weight = Number(value);
+          if(weight===1) {weight=2}
+          let link = {
+            "source": source,
+            "target": targetinho,
+            "weight": weight
+          };
 
           network.push(link);
-          //console.log(link);
-
-          /*fs.appendFile('C:\\Users\\Kutay\\Desktop\\connections-backend\\json\\json.txt', a , function (err) {
-          if (err) return console.log(err);
-       });*/
+          
         }
+        
         console.log(network);
         res.send(network);
       });
