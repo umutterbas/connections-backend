@@ -86,34 +86,73 @@ async function getMails(auth) {
     userId: "me",
   });
   const messages = res.data.messages;
+  var target = '';
+  let targetAssigned = false;
   if (messages.length) {
     for (let i = 0; i < messages.length; i++) {
       const message = messages[i];
-
+      
       const mes = await gmail.users.messages.get({
         userId: "me",
         id: message.id,
       });
 
       const headers = mes.data.payload.headers;
+      
+      if(mes.data.labelIds[0] == 'SENT') {
+        for (const element of headers) {
 
-      for (const element of headers) {
-        if (element.name == "From") {
-          var sender = element.value;
-
-          if (sender.includes("<")) {
-            sender = sender.split("<")[1].split(">")[0];
+          if (element.name == "To") {
+            var sender = element.value;
+  
+            if (sender.includes("<")) {
+              sender = sender.split("<")[1].split(">")[0];
+            }
+            senders.push(sender);
+            console.log('SENT: ', sender)
           }
-          senders.push(sender);
-        }
 
-        if (element.name == "To") {
-          var target = element.value;
-          if (target.includes("<")) {
-            target = target.split("<")[1].split(">")[0];
+          if (targetAssigned==false) {
+
+            if (element.name == "From") {
+              var sender = element.value;
+    
+              if (sender.includes("<")) {
+                target = sender.split("<")[1].split(">")[0];
+                console.log('TARGET: ', target);
+                targetAssigned = true;
+              }
+            }
           }
         }
       }
+      else {
+        for (const element of headers) {
+          if (element.name == "From") {
+            var sender = element.value;
+  
+            if (sender.includes("<")) {
+              sender = sender.split("<")[1].split(">")[0];
+            }
+            senders.push(sender);
+            console.log('REC: ', sender)
+          }
+          
+          if (targetAssigned==false) {
+
+            if (element.name == "To") {
+              var sender = element.value;
+    
+              if (sender.includes("<")) {
+                target = sender.split("<")[1].split(">")[0];
+                console.log('TARGET: ', target);
+                targetAssigned = true;
+              }
+            }
+          }
+        }
+      }
+      
     }
     return { senders, target };
   } else {
@@ -169,10 +208,10 @@ app.post("/oauth-callback", async function (req, res) {
         );
         var targetinho = arr.target;
         for (let [key, value] of counts) {
-          var link = { Source: key, Target: targetinho, Weight: value };
+          var link = { source: key, target: targetinho, weight: value };
 
           network.push(link);
-          console.log(link);
+          //console.log(link);
 
           /*fs.appendFile('C:\\Users\\Kutay\\Desktop\\connections-backend\\json\\json.txt', a , function (err) {
           if (err) return console.log(err);
