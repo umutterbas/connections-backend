@@ -304,7 +304,6 @@ function twitter(method = "authorize") {
     res.redirect(authorizationUrl);
   };
 }
-var client;
 
 app.post("/callback", async (req, res) => {
   const oauthRequestToken = req.body.oauth_token;
@@ -335,7 +334,7 @@ app.post("/callback", async (req, res) => {
     oauthVerifier,
   });
 
-  client = new Twitter({
+  let client = new Twitter({
     consumer_key: 'q9b4W1IDgQrBsq35pnNpZ9OdP',
     consumer_secret: 'fv7Y8KTQEgPtWLFEC4OaG8RwQYusiHTaF5f0qlEUe0X5cGSXQ8',
     access_token_key: oauthAccessToken,
@@ -357,14 +356,69 @@ app.post("/callback", async (req, res) => {
     secure: true,
   });
 
-  //var params = {screen_name: 'nodejs'};
+  let network = [];
+  let ids = [];
   client.get('direct_messages/events/list.json', function(error, tweets, response) {
+
     if (!error) {
-      console.log(response.body);
+      const obj = JSON.parse(response.body);
+      console.log(obj);
+      for (const element of obj.events) {
+        if(element.message_create.sender_id !== userId) {
+          ids.push(String(element.message_create.sender_id));
+        }
+        if(element.message_create.target.recipient_id !== userId) {
+          ids.push(String(element.message_create.target.recipient_id));
+        }
+        console.log("Source: ",element.message_create.sender_id, "Target: ", element.message_create.target.recipient_id);
+      }
     }
+    console.log('IDS: ',ids);
+    let counts = ids.reduce(
+      (counts, val) => counts.set(val, 1 + (counts.get(val) || 0)),
+      new Map()
+    );
+
+    console.log('COUNTS: ',counts);
+
+    let ids_ = [];
+    for (let [key, value] of counts) {
+      ids_.push(String(key));
+    }
+    
+    let names = new Map();
+    client.get('users/lookup.json', {user_id: ids_.toString()}, function(error, tweets, response) {
+      if (!error) {
+        
+        const obj = JSON.parse(response.body);
+        obj.forEach(element => {
+
+          names.set(element.id_str, element.screen_name);
+          console.log(element.screen_name);
+        });
+      }
+      let targetinho = user.screen_name;
+      for (let [key, value] of counts) {
+        let source = names.get(key);
+        let weight = Number(value);
+        if(weight===1) {weight=2}
+        let link = {
+          "source": source,
+          "target": targetinho,
+          "weight": weight
+        };
+  
+        network.push(link);
+      }
+      console.log('NETWORK: ',network);
+      res.send(network);
+    });
   });
 
-  console.log("user succesfully logged in with twitter", user.screen_name);
-  req.session.save(() => res.redirect("/"));
+  //req.session.save(() => res.redirect("/"));
 });
 //-----------------------------
+
+
+//-------------------------------------------------------------------------------------------------------------------------------------------------
+
