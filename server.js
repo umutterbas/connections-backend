@@ -99,8 +99,14 @@ async function getMails(auth) {
 
       const headers = mes.data.payload.headers;
       
+      if(i===0){
+        console.log(headers);
+      }
       if(mes.data.labelIds[0] == 'SENT') {
         for (const element of headers) {
+          if (element.name == "Delivered-To") {
+            
+          console.log(element.value)}
 
           if (element.name == "To") {
             var sender = element.value;
@@ -128,6 +134,11 @@ async function getMails(auth) {
       }
       else {
         for (const element of headers) {
+
+          if (element.name == "Delivered-To") {
+            
+            console.log(element.value)}
+  
           if (element.name == "From") {
             var sender = element.value;
   
@@ -189,7 +200,7 @@ app.get("/getGoogleData", async function (req, res) {
   });
   let cp = await open(authorizeUrl);
   
-  res.render("login");
+  res.redirect("login");
 });
 
 app.post("/oauth-callback", async function (req, res) {
