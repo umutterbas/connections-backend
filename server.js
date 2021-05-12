@@ -1,5 +1,4 @@
 const express = require("express");
-const { spawn } = require("child_process");
 const { strict } = require("assert");
 const cors = require("cors");
 const bodyParser = require("body-parser");
@@ -9,7 +8,6 @@ const fs = require("fs");
 var Twitter = require('twitter');
 const app = express();
 const port = 3000;
-app.set("view engine", "ejs");
 ("use strict");
 
 const http = require("http");
@@ -78,16 +76,28 @@ async function authenticate(scopes, token) {
   });
 }
 
+async function notMailList(to) {
+
+  
+  if (to.includes('undisclosed-recipients:;')) {
+    return false;
+  }
+  else if (to.includes('lists')) {
+    return false;
+  }
+  else {
+    return true;
+  }
+}
+
 async function getMails(auth) {
   console.log("get mails working");
-  const senders = [];
+  const mails = [];
   const gmail = google.gmail({ version: "v1", auth });
   const res = await gmail.users.messages.list({
     userId: "me",
   });
   const messages = res.data.messages;
-  var target = '';
-  let targetAssigned = false;
   if (messages.length) {
     for (let i = 0; i < messages.length; i++) {
       const message = messages[i];
@@ -96,76 +106,130 @@ async function getMails(auth) {
         userId: "me",
         id: message.id,
       });
-
+      
       const headers = mes.data.payload.headers;
       
-      if(i===0){
-        console.log(headers);
-      }
       if(mes.data.labelIds[0] == 'SENT') {
+
+        let sender = '';
+        let target = '';
+        let multiTargets = [];
+
         for (const element of headers) {
-          if (element.name == "Delivered-To") {
-            
-          console.log(element.value)}
 
           if (element.name == "To") {
-            var sender = element.value;
-  
+            target = element.value;
+            
+            const targetCount = target.split(",").length;
+            if (targetCount == 1 && target.includes('<')) {
+                target = target.split("<")[1].split(">")[0];
+            }
+            else if (targetCount > 1) {
+              let targets = target.split(',');
+              targets.forEach(t => {
+                if (t.includes('<')) {
+                  t = t.split("<")[1].split(">")[0];
+                }
+                multiTargets.push(t);
+              });
+            }
+            
+            //console.log('SENT TO: ', target)
+          } //'Kutay Akbas <kutayakbas@sabanciuniv.edu>, "Bulent Baris Turel (Student)" <bturel@sabanciuniv.edu>'
+
+          if (element.name == "From") {
+            sender = element.value;
             if (sender.includes("<")) {
               sender = sender.split("<")[1].split(">")[0];
             }
-            senders.push(sender);
-            console.log('SENT: ', sender)
+            //console.log('SENT FROM: ', sender);
           }
+        }
+        if(multiTargets.length == 0) {
+          let link = {
+            "source": target,
+            "target": sender,
+            "weight": 2,
+          };
+          mails.push(link);
+        }
+        else {
 
-          if (targetAssigned==false) {
-
-            if (element.name == "From") {
-              var sender = element.value;
-    
-              if (sender.includes("<")) {
-                target = sender.split("<")[1].split(">")[0];
-                console.log('TARGET: ', target);
-                targetAssigned = true;
-              }
-            }
-          }
+          multiTargets.forEach(t => {
+            let link = {
+              "source": t,
+              "target": sender,
+              "weight": 2,
+            };
+            mails.push(link);
+          });
         }
       }
       else {
+
+        let sender = '';
+        let target = '';
+        let multiTargets = [];
+
+        let delivered_to_count = 0;
+
         for (const element of headers) {
 
-          if (element.name == "Delivered-To") {
-            
-            console.log(element.value)}
-  
-          if (element.name == "From") {
-            var sender = element.value;
+          if (element.name == "Delivered-To" && delivered_to_count===0) {delivered_to_count+=1;}
+          
+          else if (element.name == "Delivered-To" && delivered_to_count===1) {
+            delivered_to_count+=1;
+            target = element.value;
+            console.log('REC TO: ', target);
+          }
+
+          else if (element.name == "From") {
+            sender = element.value;
   
             if (sender.includes("<")) {
               sender = sender.split("<")[1].split(">")[0];
             }
-            senders.push(sender);
-            console.log('REC: ', sender)
+            console.log('REC FROM: ', sender)
           }
           
-          if (targetAssigned==false) {
-
-            if (element.name == "To") {
-              var sender = element.value;
-    
-              if (sender.includes("<")) {
-                target = sender.split("<")[1].split(">")[0];
-                console.log('TARGET: ', target);
-                targetAssigned = true;
-              }
+          else if (element.name == "To" && !element.value.includes('undisclosed-recipients:;') && !element.value.includes('lists')) {
+            
+            target_s = element.value;
+            
+            const targetCount = target_s.split(",").length;
+            if (targetCount > 1) {
+              let targets = target_s.split(',');
+              targets.forEach(t => {
+                if (t.includes('<')) {
+                  t = t.split("<")[1].split(">")[0];
+                }
+                multiTargets.push(t.replace(/\s/g, ''));
+              });
             }
           }
         }
+        if(multiTargets.length == 0) {
+          let link = {
+            "source": sender,
+            "target": target,
+            "weight": 2,
+          };
+          mails.push(link);
+        }
+        else {
+
+          multiTargets.forEach(t => {
+            let link = {
+              "source": sender,
+              "target": t,
+              "weight": 2,
+            };
+            mails.push(link);
+          });
+        }
       }
-      
     }
-    return { senders, target };
+    return mails;
   } else {
     return;
   }
@@ -185,10 +249,6 @@ app.listen(port, () =>
 ${port}!`)
 );
 
-app.get("/", (req, res) => {
-  res.render("login");
-});
-
 //GOOGLE Methods----------------
 
 app.get("/getGoogleData", async function (req, res) {
@@ -206,33 +266,37 @@ app.get("/getGoogleData", async function (req, res) {
 app.post("/oauth-callback", async function (req, res) {
   const token = req.body.token;
 
-  let network = [];
-
   authenticate(scopes, token)
     .then((client) => {
       getMails(client).then((arr) => {
-        let counts = arr.senders.reduce(
-          (counts, val) => counts.set(val, 1 + (counts.get(val) || 0)),
-          new Map()
-        );
-        let targetinho = arr.target;
-        ///*
-        for (let [key, value] of counts) {
-          let source = String(key);
-          let weight = Number(value);
-          if(weight===1) {weight=2}
-          let link = {
-            "source": source,
-            "target": targetinho,
-            "weight": weight
-          };
-
-          network.push(link);
-          
-        }
         
-        console.log(network);
-        res.send(network);
+        let uniques = [];
+        
+        for (let i = 0; i < arr.length; i++) {
+          
+          if (uniques.length==0) {
+            uniques.push(arr[i]);
+          }
+          else {
+            
+            let assigned = false;
+            for (let j = 0; j < uniques.length; j++) {
+              
+              if ((uniques[j].source == arr[i].source && uniques[j].target == arr[i].target) ||
+              (uniques[j].target == arr[i].source && uniques[j].source == arr[i].target)) {
+
+                assigned = true;
+                uniques[j].weight += 1;
+              }
+            }
+            if (!assigned) {
+              uniques.push(arr[i]);
+            }
+          }
+        }
+
+        console.log(uniques);
+        res.send(uniques);
       });
     })
     .catch(console.error);
@@ -257,25 +321,6 @@ const TEMPLATE = fs.readFileSync(
   path.resolve(__dirname, "client", "template.html"),
   { encoding: "utf8" }
 );
-/*
-app.get("/", async (req, res, next) => {
-  console.log("/ req.cookies", req.cookies);
-  if (req.cookies && req.cookies.twitter_screen_name) {
-    console.log("/ authorized", req.cookies.twitter_screen_name);
-    return res.send(
-      TEMPLATE.replace(
-        "CONTENT",
-        `
-      <h1>Welcome ${req.cookies.twitter_screen_name}</h1>
-      <h2>ENS 491<h2>
-      <br>
-      <a href="/twitter/logout">logout</a>
-    `
-      )
-    );
-  }
-  return next();
-});*/
 
 app.use(express.static(path.resolve(__dirname, "client")));
 
@@ -398,12 +443,15 @@ app.post("/callback", async (req, res) => {
     }
     
     let names = new Map();
+    
+    //let screen_names = [];
     client.get('users/lookup.json', {user_id: ids_.toString()}, function(error, tweets, response) {
       if (!error) {
         
         const obj = JSON.parse(response.body);
+        //console.log(obj)
         obj.forEach(element => {
-
+          //screen_names.push(element.screen_name);
           names.set(element.id_str, element.screen_name);
           console.log(element.screen_name);
         });
@@ -422,14 +470,45 @@ app.post("/callback", async (req, res) => {
         network.push(link);
       }
       console.log('NETWORK: ',network);
-      res.send(network);
+      //res.send(network);
+
+
+      // add 1 more weight if the name of the user in the array is included in one of the tweets of umolibooo
+      // 
+
+      client.get('search/tweets.json', {q: 'umoliboo',include_entities: true}, function(error, tweets, response) {
+        if (!error) {
+          const obj = JSON.parse(response.body);
+          //console.log('STATUS: ',obj);
+          const a = obj.statuses[0].entities;
+          //console.log(a.hashtags);
+        } 
+        let followers = [];
+        client.get('followers/list.json',{count: 200}, function(error, tweets, response) {
+          if (!error) {
+            const obj = JSON.parse(response.body);
+            //console.log(obj);
+            //console.log(obj.users[0].name)
+
+            for (let a of obj.users){
+              followers.push(a.screen_name);
+            }
+            console.log(followers);
+            for (let n of network){
+              console.log(n.target);
+              if ( followers.includes(n.target) || followers.includes(n.source)){
+                n.weight += 1;
+              };
+            }
+            console.log("new network: ",network);
+            res.send(network);
+          };
+        });
+      });
     });
   });
-
   //req.session.save(() => res.redirect("/"));
 });
 //-----------------------------
-
-
 //-------------------------------------------------------------------------------------------------------------------------------------------------
 
