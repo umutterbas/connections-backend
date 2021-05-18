@@ -13,10 +13,8 @@ const port = 3000;
 const http = require("http");
 const url = require("url");
 const open = require("open");
-const destroyer = require("server-destroy");
 
 const { google } = require("googleapis");
-const people = google.people("v1");
 
 app.use(
   cors({
@@ -24,6 +22,7 @@ app.use(
     credentials: true,
   })
 );
+
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.json());
@@ -74,20 +73,6 @@ async function authenticate(scopes, token) {
   return new Promise((resolve, reject) => {
     resolve(oauth2Client);
   });
-}
-
-async function notMailList(to) {
-
-  
-  if (to.includes('undisclosed-recipients:;')) {
-    return false;
-  }
-  else if (to.includes('lists')) {
-    return false;
-  }
-  else {
-    return true;
-  }
 }
 
 async function getMails(auth) {
@@ -258,9 +243,8 @@ app.get("/getGoogleData", async function (req, res) {
     access_type: "offline",
     scope: scopes.join(" "),
   });
-  let cp = await open(authorizeUrl);
   
-  res.redirect("login");
+  res.redirect(authorizeUrl);
 });
 
 app.post("/oauth-callback", async function (req, res) {
@@ -356,7 +340,6 @@ function twitter(method = "authorize") {
 
     const authorizationUrl = `https://api.twitter.com/oauth/${method}?oauth_token=${oauthRequestToken}`;
     console.log("redirecting user to ", authorizationUrl);
-
     res.redirect(authorizationUrl);
   };
 }
@@ -414,7 +397,7 @@ app.post("/callback", async (req, res) => {
 
   let network = [];
   let ids = [];
-  client.get('direct_messages/events/list.json', function(error, tweets, response) {
+  client.get('direct_messages/events/list.json',{count: 50}, function(error, tweets, response) {
 
     if (!error) {
       const obj = JSON.parse(response.body);
@@ -459,8 +442,7 @@ app.post("/callback", async (req, res) => {
       let targetinho = user.screen_name;
       for (let [key, value] of counts) {
         let source = names.get(key);
-        let weight = Number(value);
-        if(weight===1) {weight=2}
+        let weight = Number(value)*4;
         let link = {
           "source": source,
           "target": targetinho,
@@ -475,13 +457,17 @@ app.post("/callback", async (req, res) => {
 
       // add 1 more weight if the name of the user in the array is included in one of the tweets of umolibooo
       // 
+      let mentions = [];
 
       client.get('search/tweets.json', {q: 'umoliboo',include_entities: true}, function(error, tweets, response) {
         if (!error) {
           const obj = JSON.parse(response.body);
           //console.log('STATUS: ',obj);
-          const a = obj.statuses[0].entities;
-          //console.log(a.hashtags);
+          for (s of obj.statuses){
+            const a = s.entities.user_mentions;
+            mentions.concat(a);
+          }
+          console.log("user mentions: ",mentions)
         } 
         let followers = [];
         client.get('followers/list.json',{count: 200}, function(error, tweets, response) {
@@ -494,10 +480,23 @@ app.post("/callback", async (req, res) => {
               followers.push(a.screen_name);
             }
             console.log(followers);
+            
             for (let n of network){
               console.log(n.target);
               if ( followers.includes(n.target) || followers.includes(n.source)){
-                n.weight += 1;
+                n.weight += 2;
+              };
+            }
+            
+            for (let f of followers){
+              if (!network.includes(f))
+              {
+                let link = {
+                  "source": f,
+                  "target": userId,
+                  "weight": 2
+                };
+                network.push(link);
               };
             }
             console.log("new network: ",network);
