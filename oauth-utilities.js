@@ -1,12 +1,9 @@
 const oauth = require("oauth");
-
+require('dotenv').config()
 const { promisify } = require("util");
 
-const TWITTER_CONSUMER_API_KEY =
-  "q9b4W1IDgQrBsq35pnNpZ9OdP" || process.env.TWITTER_CONSUMER_API_KEY;
-const TWITTER_CONSUMER_API_SECRET_KEY =
-  "fv7Y8KTQEgPtWLFEC4OaG8RwQYusiHTaF5f0qlEUe0X5cGSXQ8" ||
-  process.env.TWITTER_CONSUMER_API_SECRET_KEY;
+const TWITTER_CONSUMER_API_KEY = process.env.TWITTER_CONSUMER_KEY;
+const TWITTER_CONSUMER_API_SECRET_KEY = process.env.TWITTER_CONSUMER_SECRET;
 
 const oauthConsumer = new oauth.OAuth(
   "https://twitter.com/oauth/request_token",
@@ -14,7 +11,7 @@ const oauthConsumer = new oauth.OAuth(
   TWITTER_CONSUMER_API_KEY,
   TWITTER_CONSUMER_API_SECRET_KEY,
   "1.0A",
-  "http://localhost:3001/twitter/callback",
+  process.env.TWITTER_CALLBACK_URL,
   "HMAC-SHA1"
 );
 

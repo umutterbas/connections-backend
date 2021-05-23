@@ -1,4 +1,5 @@
 const express = require("express");
+require('dotenv').config()
 const { strict } = require("assert");
 const cors = require("cors");
 const bodyParser = require("body-parser");
@@ -18,7 +19,7 @@ const { google } = require("googleapis");
 
 app.use(
   cors({
-    origin: "http://localhost:3001",
+    origin: process.env.FRONTEND_URL,
     credentials: true,
   })
 );
@@ -52,9 +53,9 @@ if (fs.existsSync(keyPath)) {
  * Create a new OAuth2 client with the configured keys.
  */
 const oauth2Client = new google.auth.OAuth2(
-  "481059199386-dh933nt8rerrcus0f8jtrgvvp9s3ah4p.apps.googleusercontent.com",
-  "we84FG2Qc0XHmD8uJ6AYr_fh",
-  "http://localhost:3001/oauth-callback"
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  process.env.GOOGLE_CLIENT_REDIRECT_URI
 );
 
 /**
@@ -300,12 +301,12 @@ const {
 } = require("./oauth-utilities");
 
 const path = require("path");
-
+/*
 const TEMPLATE = fs.readFileSync(
   path.resolve(__dirname, "client", "template.html"),
   { encoding: "utf8" }
 );
-
+*/
 app.use(express.static(path.resolve(__dirname, "client")));
 
 app.get("/twitter/logout", logout);
@@ -374,8 +375,8 @@ app.post("/callback", async (req, res) => {
   });
 
   let client = new Twitter({
-    consumer_key: 'q9b4W1IDgQrBsq35pnNpZ9OdP',
-    consumer_secret: 'fv7Y8KTQEgPtWLFEC4OaG8RwQYusiHTaF5f0qlEUe0X5cGSXQ8',
+    consumer_key: process.env.TWITTER_CONSUMER_KEY,
+    consumer_secret: process.env.TWITTER_CONSUMER_SECRET,
     access_token_key: oauthAccessToken,
     access_token_secret: oauthAccessTokenSecret,
   });
