@@ -92,7 +92,6 @@ async function getMails(auth) {
         userId: "me",
         id: message.id,
       });
-      
       const headers = mes.data.payload.headers;
       
       if(mes.data.labelIds[0] == 'SENT') {
@@ -440,6 +439,7 @@ app.post("/callback", async (req, res) => {
           console.log(element.screen_name);
         });
       }
+      let sources = [];
       let targetinho = user.screen_name;
       for (let [key, value] of counts) {
         let source = names.get(key);
@@ -449,7 +449,7 @@ app.post("/callback", async (req, res) => {
           "target": targetinho,
           "weight": weight
         };
-  
+        sources.push(source);
         network.push(link);
       }
       console.log('NETWORK: ',network);
@@ -460,13 +460,16 @@ app.post("/callback", async (req, res) => {
       // 
       let mentions = [];
 
-      client.get('search/tweets.json', {q: 'umoliboo',include_entities: true}, function(error, tweets, response) {
+      client.get('search/tweets.json', {q: targetinho,include_entities: true}, function(error, tweets, response) {
         if (!error) {
           const obj = JSON.parse(response.body);
-          //console.log('STATUS: ',obj);
+          
           for (s of obj.statuses){
             const a = s.entities.user_mentions;
-            mentions.concat(a);
+            console.log(a)
+            for (let c of a){
+              mentions.push(c.screen_name);
+            }
           }
           console.log("user mentions: ",mentions)
         } 
@@ -480,22 +483,42 @@ app.post("/callback", async (req, res) => {
             for (let a of obj.users){
               followers.push(a.screen_name);
             }
-            console.log(followers);
+            //console.log(followers);
+
+
+          
             
+            let mention_count = mentions.reduce(
+              (mention_count, val) => mention_count.set(val, 1 + (mention_count.get(val) || 0)),
+              new Map()
+            );
+
+            
+
             for (let n of network){
               console.log(n.target);
               if ( followers.includes(n.target) || followers.includes(n.source)){
                 n.weight += 2;
               };
+              if (mentions.includes(n.target)){
+                n.weight += mention_count.get(n.target);
+              }
+              else if (mentions.includes(n.source)){
+                n.weight += mention_count.get(n.source);
+              };
+            
             }
             
             for (let f of followers){
-              if (!network.includes(f))
+              if (!sources.includes(f))
               {
                 let link = {
-                  "source": f,
-                  "target": userId,
+                  "source": targetinho,
+                  "target": f,
                   "weight": 2
+                };
+                if (mentions.includes(f)){
+                  f.weight += 1;
                 };
                 network.push(link);
               };
